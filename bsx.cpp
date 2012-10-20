@@ -206,6 +206,10 @@
 
 struct SBSX_RTC
 {
+	int year;
+	int month;
+	int dayweek;
+	int day;
 	int	hours;
 	int	minutes;
 	int	seconds;
@@ -219,7 +223,7 @@ static const uint8	flashcard[20] =
 {
 	0x4D, 0x00, 0x50, 0x00,	// vendor id
 	0x00, 0x00,				// ?
-	0x2B, 0x00,				// 2MB Flash (1MB = 0x2A)
+	0x2A, 0x00,				// 2MB Flash (1MB = 0x2A)
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
@@ -348,8 +352,8 @@ static void BSX_Map_MMC (void)
 {
 	int	c;
 
-	// Banks 01->0E:5000-5FFF
-	for (c = 0x010; c < 0x0F0; c += 16)
+	// Banks 00->0F:5000-5FFF
+	for (c = 0x000; c < 0x100; c += 16)
 	{
 		Map[c + 5] = (uint8 *) MAP_BSX;
 		BlockIsRAM[c + 5] = BlockIsROM[c + 5] = FALSE;
@@ -798,95 +802,130 @@ uint8 S9xGetBSXPPU (uint16 address)
 	// known read registers
 	switch (address)
 	{
-		// Test register low? (r/w)
+		// Stream 1 Registers
+		//Hardware Channel low
 		case 0x2188:
 			t = BSX.PPU[0x2188 - BSXPPUBASE];
 			break;
 
-		// Test register high? (r/w)
+		//Hardware Channel high
 		case 0x2189:
 			t = BSX.PPU[0x2189 - BSXPPUBASE];
 			break;
 
+		//Queue Size
 		case 0x218A:
 			t = BSX.PPU[0x218A - BSXPPUBASE];
+
+			if (BSX.PPU[0x2188 - BSXPPUBASE] == 0 && BSX.PPU[0x2189 - BSXPPUBASE] == 0)	t = 1;
+			else
+			{
+				if (!BSX.stream1 || BSX.PPU[0x218A - BSXPPUBASE] == 0) {
+					BSX.strm1_num++;
+					S9xBSXSetStream1(BSX.strm1_num);
+				}
+			}
 			break;
 
+		//Status Units
+		case 0x218B:
+			t = BSX.PPU[0x218A - BSXPPUBASE];
+
+			if (BSX.PPU[0x2188 - BSXPPUBASE] == 0 && BSX.PPU[0x2189 - BSXPPUBASE] == 0)	t = 0x90;
+			else
+			{
+				t = 0x00;
+				if (BSX.stream1)
+				{
+					if (BSX.strm1_1st) {
+						t = 0x10;
+						BSX.strm1_1st = false;
+					}
+					BSX.PPU[0x218A - BSXPPUBASE]--;
+					if (BSX.PPU[0x218A - BSXPPUBASE] == 0) t |= 0x80;
+				}
+			}
+			BSX.PPU[0x218D - BSXPPUBASE] |= t;
+			break;
+
+		//Data Units
 		case 0x218C:
 			t = BSX.PPU[0x218C - BSXPPUBASE];
+
+			if (BSX.PPU[0x2188 - BSXPPUBASE] == 0 && BSX.PPU[0x2189 - BSXPPUBASE] == 0)	t = S9xBSXGetRTC();
+			else
+			{
+				t = 0x00;
+				if (BSX.stream1) t = (uint8)fgetc(BSX.stream1);
+			}
 			break;
 
-		// Transmission number low? (r/w)
+		//Status Summary
+		case 0x218D:
+			t = BSX.PPU[0x218D - BSXPPUBASE];
+			break;
+
+		//Stream 2 Registers
+		//Hardware Channel low
 		case 0x218E:
 			t = BSX.PPU[0x218E - BSXPPUBASE];
 			break;
 
-		// Transmission number high? (r/w)
+		//Hardware Channel high
 		case 0x218F:
 			t = BSX.PPU[0x218F - BSXPPUBASE];
 			break;
 
-		// Status register? (r)
+		//Queue Size
 		case 0x2190:
 			t = BSX.PPU[0x2190 - BSXPPUBASE];
+
+			if (BSX.PPU[0x218E - BSXPPUBASE] == 0 && BSX.PPU[0x218F - BSXPPUBASE] == 0)	t = 1;
 			break;
 
-		// Data register? (r/w)
+		//Status Units
+		case 0x2191:
+			t = BSX.PPU[0x2191 - BSXPPUBASE];
+
+			if (BSX.PPU[0x218E - BSXPPUBASE] == 0 && BSX.PPU[0x218F - BSXPPUBASE] == 0)	t = 0x90;
+			break;
+
+		//Data Units
 		case 0x2192:
 			t = BSX.PPU[0x2192 - BSXPPUBASE];
 
 			// test
-			t = BSX.test2192[BSX.out_index++];
-			if (BSX.out_index == 32)
-				BSX.out_index = 0;
-
-			BSX_RTC.ticks++;
-			if (BSX_RTC.ticks >= 1000)
-			{
-				BSX_RTC.ticks = 0;
-				BSX_RTC.seconds++;
-			}
-			if (BSX_RTC.seconds >= 60)
-			{
-				BSX_RTC.seconds = 0;
-				BSX_RTC.minutes++;
-			}
-			if (BSX_RTC.minutes >= 60)
-			{
-				BSX_RTC.minutes = 0;
-				BSX_RTC.hours++;
-			}
-			if (BSX_RTC.hours >= 24)
-				BSX_RTC.hours = 0;
-
-			BSX.test2192[10] = BSX_RTC.seconds;
-			BSX.test2192[11] = BSX_RTC.minutes;
-			BSX.test2192[12] = BSX_RTC.hours;
-
+			if (BSX.PPU[0x218E - BSXPPUBASE] == 0 && BSX.PPU[0x218F - BSXPPUBASE] == 0)	t = S9xBSXGetRTC();
 			break;
 
-		// Transmission status? (r/w)
+		//Status Summary
 		case 0x2193:
-			// Data ready when bits 2/3 clear?
-			t = BSX.PPU[0x2193 - BSXPPUBASE] & ~0x0C;
+			t = BSX.PPU[0x2193 - BSXPPUBASE];
+
+			if (BSX.PPU[0x218E - BSXPPUBASE] == 0 && BSX.PPU[0x218F - BSXPPUBASE] == 0)	t = 0x90;
 			break;
 
-		// Reset? (r/w)
+		// Control (LED and Audio?)
 		case 0x2194:
 			t = BSX.PPU[0x2194 - BSXPPUBASE];
 			break;
 
-		// Unknown (r)
+		// Status (r)
 		case 0x2196:
 			t = BSX.PPU[0x2196 - BSXPPUBASE];
 			break;
 
-		// Unknown (r/w)
+		// Soundlink Control (r/w)
 		case 0x2197:
 			t = BSX.PPU[0x2197 - BSXPPUBASE];
 			break;
 
-		// Modem protocol? (r/w)
+		// Serial 1
+		case 0x2198:
+			t = BSX.PPU[0x2198 - BSXPPUBASE];
+			break;
+
+		// Serial 2
 		case 0x2199:
 			t = BSX.PPU[0x2199 - BSXPPUBASE];
 			break;
@@ -904,73 +943,75 @@ void S9xSetBSXPPU (uint8 byte, uint16 address)
 	// known write registers
 	switch (address)
 	{
-		// Test register low? (r/w)
+		//Stream 1
+		//Hardware Channel low
 		case 0x2188:
 			BSX.PPU[0x2188 - BSXPPUBASE] = byte;
+			BSX.strm1_1st = false;
+			BSX.strm1_num = -1;
 			break;
 
-		// Test register high? (r/w)
+		//Hardware Channel high
 		case 0x2189:
 			BSX.PPU[0x2189 - BSXPPUBASE] = byte;
+			BSX.strm1_1st = false;
+			BSX.strm1_num = -1;
 			break;
 
-		case 0x218A:
-			BSX.PPU[0x218A - BSXPPUBASE] = byte;
-			break;
-
+		//Status Units Reset
 		case 0x218B:
 			BSX.PPU[0x218B - BSXPPUBASE] = byte;
 			break;
 
+		//Data Units Reset
 		case 0x218C:
 			BSX.PPU[0x218C - BSXPPUBASE] = byte;
 			break;
 
-		// Transmission number low? (r/w)
+
+
+		//Stream 2
+		//Hardware Channel low
 		case 0x218E:
 			BSX.PPU[0x218E - BSXPPUBASE] = byte;
+			BSX.strm2_1st = false;
+			BSX.strm2_num = -1;
 			break;
 
-		// Transmission number high? (r/w)
+		//Hardware Channel high
 		case 0x218F:
 			BSX.PPU[0x218F - BSXPPUBASE] = byte;
-
-			// ?
-			BSX.PPU[0x218E - BSXPPUBASE] >>= 1;
-			BSX.PPU[0x218E - BSXPPUBASE] = BSX.PPU[0x218F - BSXPPUBASE] - BSX.PPU[0x218E - BSXPPUBASE];
-			BSX.PPU[0x218F - BSXPPUBASE] >>= 1;
-
-			BSX.PPU[0x2190 - BSXPPUBASE] = 0x80; // ?
+			BSX.strm2_1st = false;
+			BSX.strm2_num = -1;
 			break;
 
-		// Strobe assert? (w)
+		//Status Units Reset
 		case 0x2191:
 			BSX.PPU[0x2191 - BSXPPUBASE] = byte;
 			BSX.out_index = 0;
 			break;
 
-		// Data register? (r/w)
+		//Data Units Reset
 		case 0x2192:
-			BSX.PPU[0x2192 - BSXPPUBASE] = 0x01; // ?
-			BSX.PPU[0x2190 - BSXPPUBASE] = 0x80; // ?
+			BSX.PPU[0x2192 - BSXPPUBASE] = byte;
 			break;
 
-		// Transmission status? (r/w)
-		case 0x2193:
-			BSX.PPU[0x2193 - BSXPPUBASE] = byte;
-			break;
-
-		// Reset? (r/w)
+		// Control (LED and Audio?)
 		case 0x2194:
 			BSX.PPU[0x2194 - BSXPPUBASE] = byte;
 			break;
 
-		// Unknown (r/w)
+		// Soundlink Control?
 		case 0x2197:
 			BSX.PPU[0x2197 - BSXPPUBASE] = byte;
 			break;
 
-		// Modem protocol? (r/w)
+		//Serial 1
+		case 0x2198:
+			BSX.PPU[0x2198 - BSXPPUBASE] = byte;
+			break;
+
+		//Serial 2
 		case 0x2199:
 			// Lots of modem strings written here when
 			// connection is lost or no uplink established
@@ -1106,8 +1147,15 @@ void S9xInitBSX (void)
 		BSX.test2192[10] = BSX_RTC.seconds = tmr->tm_sec;
 		BSX.test2192[11] = BSX_RTC.minutes = tmr->tm_min;
 		BSX.test2192[12] = BSX_RTC.hours   = tmr->tm_hour;
+		BSX.test2192[13] = BSX_RTC.dayweek = (tmr->tm_wday)++;
+		BSX.test2192[14] = BSX_RTC.day	   = tmr->tm_mday;
+		BSX.test2192[15] = BSX_RTC.month   = (tmr->tm_mon)++;
+		BSX_RTC.year = tmr->tm_year;
+		BSX.test2192[16] = (BSX_RTC.year) & 0xFF;
+		BSX.test2192[17] = (BSX_RTC.year) >> 8;
+
 #ifdef BSX_DEBUG
-		printf("BS: Current Time: %02d:%02d:%02d\n",  BSX_RTC.hours, BSX_RTC.minutes, BSX_RTC.seconds);
+		printf("BS: Current Time: %02d:%02d:%02d - %02d/%02d/%04d\n",  BSX_RTC.hours, BSX_RTC.minutes, BSX_RTC.seconds, BSX_RTC.day, BSX_RTC.month, BSX_RTC.year);
 #endif
 		SNESGameFixes.SRAMInitialValue = 0x00;
 	}
@@ -1133,6 +1181,9 @@ void S9xResetBSX (void)
 
 	BSX.out_index = 0;
 	memset(BSX.output, 0, sizeof(BSX.output));
+
+	BSX.strm1_num = -1;
+	BSX.strm2_num = -1;
 
 	// starting from the bios
 	if (BSX.bootup)
@@ -1180,6 +1231,98 @@ void S9xBSXPostLoadState (void)
 	memcpy(BSX.MMC, temp, sizeof(BSX.MMC));
 	BSX.dirty  = pd1;
 	BSX.dirty2 = pd2;
+}
+
+uint8 S9xBSXGetRTC (void)
+{
+	//Get Time
+	/*
+	BSX_RTC.ticks++;
+	if (BSX_RTC.ticks >= 1000)
+	{
+		BSX_RTC.ticks = 0;
+		BSX_RTC.seconds++;
+	}
+	if (BSX_RTC.seconds >= 60)
+	{
+		BSX_RTC.seconds = 0;
+		BSX_RTC.minutes++;
+	}
+	if (BSX_RTC.minutes >= 60)
+	{
+		BSX_RTC.minutes = 0;
+		BSX_RTC.hours++;
+	}
+	if (BSX_RTC.hours >= 24)
+		BSX_RTC.hours = 0;
+	*/
+
+	time_t		t;
+	struct tm	*tmr;
+
+	time(&t);
+	tmr = localtime(&t);
+
+	BSX.test2192[10] = BSX_RTC.seconds = tmr->tm_sec;
+	BSX.test2192[11] = BSX_RTC.minutes = tmr->tm_min;
+	BSX.test2192[12] = BSX_RTC.hours   = tmr->tm_hour;
+	BSX.test2192[13] = BSX_RTC.dayweek = (tmr->tm_wday)++;
+	BSX.test2192[14] = BSX_RTC.day	   = tmr->tm_mday;
+	BSX.test2192[15] = BSX_RTC.month   = (tmr->tm_mon)++;
+	BSX_RTC.year = tmr->tm_year;
+	BSX.test2192[16] = (BSX_RTC.year) & 0xFF;
+	BSX.test2192[17] = (BSX_RTC.year) >> 8;
+
+	t = BSX.test2192[BSX.out_index++];
+	if (BSX.out_index >= 23)
+		BSX.out_index = 0;
+
+	return t;
+}
+
+void S9xBSXSetStream1 (uint8 filenumber)
+{
+	//LOL
+	if (BSX.stream1) fclose(BSX.stream1);
+
+	char	path[PATH_MAX + 1], name[PATH_MAX + 1];
+
+	strcpy(path, S9xGetDirectory(HOME_DIR));
+	strcat(path, SLASH_STR);
+	strcat(path, "bsxdat");
+	strcat(path, SLASH_STR);
+	strcpy(name, path);
+
+	uint16 Signal_Nb=BSX.PPU[0x2188 - BSXPPUBASE]^(BSX.PPU[0x2189 - BSXPPUBASE]*256);
+	char	filenm [25];
+	sprintf(filenm, "BSX%04.4hX-%d.bin", Signal_Nb, filenumber);
+
+	strcat(name, filenm);
+
+	BSX.stream1 = fopen(name, "rb");
+	if (BSX.stream1)
+	{
+		fseek (BSX.stream1 , 0 , SEEK_END);
+		long str1size = ftell (BSX.stream1);
+		rewind (BSX.stream1);
+		float QueueSize = (str1size+1) / 22.;
+		BSX.PPU[0x218A - BSXPPUBASE] = (uint8)(ceil(QueueSize));
+		BSX.PPU[0x218D - BSXPPUBASE] = 0;
+		BSX.strm1_1st = true;
+	}
+	else
+	{
+		BSX.strm1_1st = false;
+		BSX.strm1_num = -1;
+		BSX.PPU[0x218A - BSXPPUBASE] = 0;
+		BSX.PPU[0x218D - BSXPPUBASE] = 0;
+	}
+}
+
+void S9xBSXSetStream2 (uint8 filenumber)
+{
+	//LOL
+	
 }
 
 static bool valid_normal_bank (unsigned char bankbyte)

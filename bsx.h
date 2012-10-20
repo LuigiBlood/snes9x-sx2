@@ -196,6 +196,14 @@ struct SBSX
 	uint8	MMC[16];
 	uint8	prevMMC[16];
 	uint8	test2192[32];
+
+	bool	strm1_1st;
+	bool	strm2_1st;
+	int		strm1_num;
+	int		strm2_num;
+
+	FILE	*stream1;
+	FILE	*stream2;
 };
 
 extern struct SBSX	BSX;
@@ -208,5 +216,8 @@ uint8 * S9xGetBasePointerBSX (uint32);
 void S9xInitBSX (void);
 void S9xResetBSX (void);
 void S9xBSXPostLoadState (void);
+uint8 S9xBSXGetRTC (void);
+void S9xBSXSetStream1 (uint8);
+void S9xBSXSetStream2 (uint8);
 
 #endif
