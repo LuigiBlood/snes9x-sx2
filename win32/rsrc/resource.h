@@ -495,6 +495,7 @@
 #define ID_WINDOW_SIZE_4X               40172
 #define ID_DEBUG_APU_TRACE              40173
 #define ID_EMULATION_BACKGROUNDINPUT    40174
+#define ID_SAVEMEMPACK					40175
 
 // Next default values for new objects
 // 

@@ -204,6 +204,11 @@ struct SBSX
 
 	FILE	*stream1;
 	FILE	*stream2;
+
+	bool	flash_csr;
+	bool	flash_gsr;
+	bool	flash_bsr;
+	bool	flash_cmd_done;
 };
 
 extern struct SBSX	BSX;

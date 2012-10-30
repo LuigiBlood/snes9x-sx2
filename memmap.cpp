@@ -1226,15 +1226,34 @@ static bool8 is_SufamiTurbo_Cart (const uint8 *data, uint32 size)
 
 static bool8 is_SameGame_BIOS (const uint8 *data, uint32 size)
 {
+	/*
 	if (size == 0x100000 && strncmp((char *) (data + 0xffc0), "Same Game Tsume Game", 20) == 0)
 		return (TRUE);
+	else
+		return (FALSE);
+		*/
+	
+	if ((data[0x7FB2] == 0x5A) && (data[0x7FB5] != 0x20) && (data[0x7FDA] == 0x33))
+	{
+		Memory.LoROM = TRUE;
+		Memory.HiROM = FALSE;
+		
+		return (TRUE);
+	}
+	else if ((data[0xFFB2] == 0x5A) && (data[0xFFB5] != 0x20) && (data[0xFFDA] == 0x33))
+	{
+		Memory.LoROM = FALSE;
+		Memory.HiROM = TRUE;
+		
+		return (TRUE);
+	}
 	else
 		return (FALSE);
 }
 
 static bool8 is_SameGame_Add_On (const uint8 *data, uint32 size)
 {
-	if (size == 0x80000)
+	if (size == 0x80000 || size == 0x100000)
 		return (TRUE);
 	else
 		return (FALSE);
@@ -1524,6 +1543,8 @@ bool8 CMemory::LoadROMMem (const uint8 *source, uint32 sourceSize)
         memcpy(ROM,source,sourceSize);
     }
     while(!LoadROMInt(sourceSize));
+
+
 
     return TRUE;
 }
@@ -1972,19 +1993,23 @@ bool8 CMemory::LoadSameGame ()
 	Multi.sramA = SRAM;
 	Multi.sramB = NULL;
 
-	Multi.sramSizeA = ROM[0xffd8];
+	if (LoROM)
+		Multi.sramSizeA = ROM[0x7fd8];
+	else
+		Multi.sramSizeA = ROM[0xffd8];
+
 	Multi.sramMaskA = Multi.sramSizeA ? ((1 << (Multi.sramSizeA + 3)) * 128 - 1) : 0;
 	Multi.sramSizeB = 0;
 	Multi.sramMaskB = 0;
 
+	/*
 	if (Multi.cartSizeB)
 	{
 		if (!is_SameGame_Add_On(ROM + Multi.cartOffsetB, Multi.cartSizeB))
 			Multi.cartSizeB = 0;
 	}
+	*/
 
-	LoROM = FALSE;
-	HiROM = TRUE;
 	CalculatedSize = Multi.cartSizeA;
 
 	return (TRUE);
@@ -2195,6 +2220,35 @@ bool8 CMemory::SaveSRAM (const char *filename)
 	return (FALSE);
 }
 
+bool8 CMemory::SaveMPAK (const char *filename)
+{
+	if (Settings.BS || (Multi.cartSizeB && (Multi.cartType == 3)))
+	{
+		FILE	*file;
+		int		size;
+		char	mempakName[PATH_MAX + 1];
+
+		strcpy(mempakName, filename);
+		size = 0x100000;
+		if (size)
+		{
+			file = fopen(mempakName, "wb");
+			if (file)
+			{
+				size_t	ignore;
+				if (Settings.BS)
+					ignore = fwrite((char *) ROM, size, 1, file);
+				if (Multi.cartSizeB && (Multi.cartType == 3))
+					ignore = fwrite((char *) ROM + Multi.cartOffsetB, Multi.cartSizeB, 1, file);
+				fclose(file);
+
+				return (TRUE);
+			}
+		}
+	}
+	return (FALSE);
+}
+
 // initialization
 
 static uint32 caCRC32 (uint8 *array, uint32 size, uint32 crc32)
@@ -2296,8 +2350,8 @@ void CMemory::ParseSNESHeader (uint8 *RomHeader)
 
 	if (bs)
 	{
-		if (!(((RomHeader[0x29] & 0x20) && CalculatedSize <  0x100000) ||
-			 (!(RomHeader[0x29] & 0x20) && CalculatedSize == 0x100000)))
+		if (!(((RomHeader[0x29] & 0xF0) && CalculatedSize <  0x100000) ||
+			 (!(RomHeader[0x29] & 0xF0) && CalculatedSize == 0x100000)))
 			printf("BS: Size mismatch\n");
 
 		// FIXME
@@ -2537,7 +2591,8 @@ void CMemory::InitROM (void)
 			Map_ExtendedHiROMMap();
 		else
 		if (Multi.cartType == 3)
-			Map_SameGameHiROMMap();
+			Map_BSCartHiROMMap();
+			//Map_SameGameHiROMMap();
 		else
 			Map_HiROMMap();
     }
@@ -2568,6 +2623,13 @@ void CMemory::InitROM (void)
 		else
 		if (strncmp(ROMName, "WANDERERS FROM YS", 17) == 0)
 			Map_NoMAD1LoROMMap();
+		else
+		if (Multi.cartType == 3)
+			if (strncmp(ROMName, "SOUND NOVEL-TCOOL", 17) == 0 ||
+				strncmp(ROMName, "DERBY STALLION 96", 17) == 0)
+				Map_BSCartLoROMMap(1);
+			else
+				Map_BSCartLoROMMap(0);
 		else
 		if (strncmp(ROMName, "SOUND NOVEL-TCOOL", 17) == 0 ||
 			strncmp(ROMName, "DERBY STALLION 96", 17) == 0)
@@ -3353,6 +3415,78 @@ void CMemory::Map_SPC7110HiROMMap (void)
 	map_hirom_offset(0xc0, 0xcf, 0x0000, 0xffff, CalculatedSize, 0);
 	map_index(0xd0, 0xff, 0x0000, 0xffff, MAP_SPC7110_ROM,  MAP_TYPE_ROM);
 
+	map_WRAM();
+
+	map_WriteProtectROM();
+}
+
+void CMemory::Map_BSCartLoROMMap (uint8 mapping)
+{
+	printf("Map_BSCartLoROMMap\n");
+
+	BSX.MMC[0x02] = 0x00;
+	BSX.MMC[0x0C] = 0x80;
+
+	map_System();
+
+	if (mapping)
+	{
+		map_lorom_offset(0x00, 0x1f, 0x8000, 0xffff, 0x100000, 0);
+		map_lorom_offset(0x20, 0x3f, 0x8000, 0xffff, 0x100000, 0x100000);
+		map_lorom_offset(0x80, 0x9f, 0x8000, 0xffff, 0x100000, 0x200000);
+		map_lorom_offset(0xa0, 0xbf, 0x8000, 0xffff, 0x100000, 0x100000);
+	}
+	else
+	{
+		map_lorom(0x00, 0x3f, 0x8000, 0xffff, CalculatedSize);
+		map_lorom(0x40, 0x7f, 0x0000, 0x7fff, CalculatedSize);
+		map_lorom(0x80, 0xbf, 0x8000, 0xffff, CalculatedSize);
+		map_lorom(0xc0, 0xff, 0x0000, 0x7fff, CalculatedSize);
+	}
+	
+	map_index(0xc0, 0xff, 0x0000, 0xffff, MAP_BSX, MAP_TYPE_RAM);
+
+	//map_LoROMSRAM();
+	map_index(0x70, 0x7f, 0x0000, 0x7fff, MAP_LOROM_SRAM, MAP_TYPE_RAM);
+	/*
+	map_space(0x70, 0x70, 0x0000, 0x7fff, SRAM);
+	map_space(0x71, 0x71, 0x0000, 0x7fff, SRAM + 0x8000);
+	map_space(0x72, 0x72, 0x0000, 0x7fff, SRAM + 0x10000);
+	map_space(0x73, 0x73, 0x0000, 0x7fff, SRAM + 0x18000);
+	*/
+	map_WRAM();
+
+	map_WriteProtectROM();
+}
+
+void CMemory::Map_BSCartHiROMMap (void)
+{
+	printf("Map_BSCartHiROMMap\n");
+
+	BSX.MMC[0x02] = 0x80;
+	BSX.MMC[0x0C] = 0x80;
+
+	map_System();
+	/*
+	map_hirom(0x00, 0x3f, 0x8000, 0xffff, CalculatedSize);
+	map_hirom(0x40, 0x7f, 0x0000, 0xffff, CalculatedSize);
+	map_hirom(0x80, 0xbf, 0x8000, 0xffff, CalculatedSize);
+	map_hirom(0xc0, 0xff, 0x0000, 0xffff, CalculatedSize);
+	*/
+	map_hirom_offset(0x00, 0x1f, 0x8000, 0xffff, Multi.cartSizeA, Multi.cartOffsetA);
+	map_hirom_offset(0x20, 0x3f, 0x8000, 0xffff, Multi.cartSizeB, Multi.cartOffsetB);
+	map_hirom_offset(0x40, 0x5f, 0x0000, 0xffff, Multi.cartSizeA, Multi.cartOffsetA);
+	map_hirom_offset(0x60, 0x7f, 0x0000, 0xffff, Multi.cartSizeB, Multi.cartOffsetB);
+	map_hirom_offset(0x80, 0x9f, 0x8000, 0xffff, Multi.cartSizeA, Multi.cartOffsetA);
+	map_hirom_offset(0xa0, 0xbf, 0x8000, 0xffff, Multi.cartSizeB, Multi.cartOffsetB);
+	map_hirom_offset(0xc0, 0xdf, 0x0000, 0xffff, Multi.cartSizeA, Multi.cartOffsetA);
+
+	if ((ROM[Multi.cartOffsetB + 0x0002] == 0x80) && (ROM[Multi.cartOffsetB + 0x0004] == 0x80) && (ROM[Multi.cartOffsetB + 0xFF00] == 0x4D) && (ROM[Multi.cartOffsetB + 0xFF02] == 0x50))
+		map_hirom_offset(0xe0, 0xff, 0x0000, 0xffff, Multi.cartSizeB, Multi.cartOffsetB);
+	else
+		map_index(0xe0, 0xff, 0x0000, 0xffff, MAP_BSX, MAP_TYPE_RAM);
+
+	map_HiROMSRAM();
 	map_WRAM();
 
 	map_WriteProtectROM();

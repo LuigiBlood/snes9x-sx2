@@ -2112,6 +2112,12 @@ LRESULT CALLBACK WinProc(
 			if(!success)
 				S9xMessage(S9X_ERROR, S9X_FREEZE_FILE_INFO, SRM_SAVE_FAILED);
 		}	break;
+		case ID_SAVEMEMPACK: {
+			bool8 success = Memory.SaveMPAK (S9xGetFilename (".save.bs", HOME_DIR));
+			if(!success)
+				S9xMessage(S9X_ERROR, S9X_FREEZE_FILE_INFO, "Failed to save Memory Pack.");
+			break;
+		}
 		case ID_FILE_RESET:
 #ifdef NETPLAY_SUPPORT
 			if (Settings.NetPlayServer)
@@ -6797,7 +6803,7 @@ void MakeExtFile(void)
 	out.open("Valid.Ext");
 
 	out<<"N"   <<endl<<"smcN"<<endl<<"zipY"<<endl<<"gzY" <<endl<<"swcN"<<endl<<"figN"<<endl;
-	out<<"sfcN"<<endl;
+	out<<"sfcN"<<endl<<"bsN"<<endl;
 	out<<"jmaY";
 	out.close();
 	SetFileAttributes(TEXT("Valid.Ext"), FILE_ATTRIBUTE_ARCHIVE|FILE_ATTRIBUTE_READONLY);

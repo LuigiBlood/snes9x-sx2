@@ -187,7 +187,7 @@
 //#define BSX_DEBUG
 
 #define BIOS_SIZE	0x100000
-#define FLASH_SIZE	0x200000
+#define FLASH_SIZE	0x100000
 #define PSRAM_SIZE	0x80000
 
 #define Map			Memory.Map
@@ -223,14 +223,14 @@ static const uint8	flashcard[20] =
 {
 	0x4D, 0x00, 0x50, 0x00,	// vendor id
 	0x00, 0x00,				// ?
-	0x2A, 0x00,				// 2MB Flash (1MB = 0x2A)
+	0x1A, 0x00,				// 2MB Flash (1MB = 0x2A)
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
 static const uint8	init2192[32] =	// FIXME
 {
-	00, 00, 00, 00, 00,		// unknown
+	00, 00, 00, 00, 03,		// unknown
 	01, 01, 00, 00, 00,
 	00,						// seconds (?)
 	00,						// minutes
@@ -255,12 +255,11 @@ static void BSX_Map_BIOS (void);
 static void BSX_Map_RAM (void);
 static void BSX_Map_Dirty (void);
 static void BSX_Map (void);
-static void BSX_Set_Bypass_FlashIO (uint16, uint8);
+static void BSX_Set_Bypass_FlashIO (uint32, uint8);
 static uint8 BSX_Get_Bypass_FlashIO (uint16);
 static bool8 BSX_LoadBIOS (void);
 static void map_psram_mirror_sub (uint32);
 static int is_bsx (unsigned char *);
-
 
 static void BSX_Map_SNES (void)
 {
@@ -360,19 +359,16 @@ static void BSX_Map_MMC (void)
 	}
 }
 
-static void BSX_Map_FlashIO (void)
+void BSX_Map_FlashIO (void)
 {
 	int	c;
 
-	if (BSX.MMC[0x0C] || BSX.MMC[0x0D])
+	// Bank C0:0000, 2AAA, 5555, FF00-FF1F
+	for (c = 0; c < 0x400; c += 8)
 	{
-		// Bank C0:0000, 2AAA, 5555, FF00-FF1F
-		for (c = 0; c < 16; c++)
-		{
-			Map[c + 0xC00] = (uint8 *) MAP_BSX;
-			BlockIsRAM[c + 0xC00] = TRUE;
-			BlockIsROM[c + 0xC00] = FALSE;
-		}
+		Map[c + 0xC00] = (uint8 *) MAP_BSX;
+		BlockIsRAM[c + 0xC00] = TRUE;
+		BlockIsROM[c + 0xC00] = FALSE;
 	}
 }
 
@@ -412,11 +408,14 @@ static void map_psram_mirror_sub (uint32 bank)
 		for (c = 0; c < 0x100; c += 16)
 		{
 			for (i = c; i < c + 8; i++)
+			{
 				Map[i + bank] = &PSRAM[(c << 11) % PSRAM_SIZE];
-
+				//Map[i + 8 + bank] = &PSRAM[(c << 11) % PSRAM_SIZE];
+			}
+			
 			for (i = c + 8; i < c + 16; i++)
 				Map[i + bank] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
-
+			
 			for (i = c; i < c + 16; i++)
 			{
 				BlockIsRAM[i + bank] = TRUE;
@@ -428,26 +427,311 @@ static void map_psram_mirror_sub (uint32 bank)
 
 static void BSX_Map_PSRAM (void)
 {
-	int	c;
+	int	c,i;
+
+	if (!BSX.MMC[0x02])
+	{
+		//LoROM
+		if (!BSX.MMC[0x05] && !BSX.MMC[0x06])
+		{
+			//Map PSRAM to 00-0F/80-8F
+			
+			if (BSX.MMC[0x03])
+				map_psram_mirror_sub(0x00);
+
+			if (BSX.MMC[0x04])
+				map_psram_mirror_sub(0x80);
+			
+			/*
+			if (BSX.MMC[0x03])
+			{
+				
+				for (c = 0; c < 0x100; c += 16)
+				{
+					for (i = c + 8; i < c + 16; i++)
+					{
+						Map[i] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i] = TRUE;
+						BlockIsROM[i] = FALSE;
+					}
+				}
+			}
+
+			if (BSX.MMC[0x04])
+			{
+				for (c = 0; c < 0x100; c += 16)
+				{
+					for (i = c + 8; i < c + 16; i++)
+					{
+						Map[i + 0x800] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0x800] = TRUE;
+						BlockIsROM[i + 0x800] = FALSE;
+					}
+				}
+			}
+			*/
+		}
+		else if (BSX.MMC[0x05] && !BSX.MMC[0x06])
+		{
+			//Map PSRAM to 20-2F/A0-AF
+
+			if (BSX.MMC[0x03])
+				map_psram_mirror_sub(0x20);
+
+			if (BSX.MMC[0x04])
+				map_psram_mirror_sub(0xA0);
+
+			/*
+			if (BSX.MMC[0x03])
+			{
+				for (c = 0; c < 0x100; c += 16)
+				{
+					for (i = c + 8; i < c + 16; i++)
+					{
+						Map[i + 0x200] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0x200] = TRUE;
+						BlockIsROM[i + 0x200] = FALSE;
+					}
+				}
+			}
+
+			if (BSX.MMC[0x04])
+			{
+				for (c = 0; c < 0x100; c += 16)
+				{
+					for (i = c + 8; i < c + 16; i++)
+					{
+						Map[i + 0xA00] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0xA00] = TRUE;
+						BlockIsROM[i + 0xA00] = FALSE;
+					}
+				}
+			}
+			*/
+		}
+		else if (!BSX.MMC[0x05] && BSX.MMC[0x06])
+		{
+			//Map PSRAM to 40-4F/C0-CF
+
+			if (BSX.MMC[0x03])
+				map_psram_mirror_sub(0x40);
+
+			if (BSX.MMC[0x04])
+				map_psram_mirror_sub(0xC0);
+
+			/*
+			if (BSX.MMC[0x03])
+			{
+				for (c = 0; c < 0x100; c += 16)
+				{
+					//High
+					for (i = c + 0; i < c + 8; i++)
+					{
+						Map[i + 0x400] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0x400] = TRUE;
+						BlockIsROM[i + 0x400] = FALSE;
+					}
+					//Low
+					for (i = c + 8; i < c + 16; i++)
+					{
+						Map[i + 0x400] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0x400] = TRUE;
+						BlockIsROM[i + 0x400] = FALSE;
+					}
+				}
+			}
+
+			if (BSX.MMC[0x04])
+			{
+				for (c = 0; c < 0x100; c += 16)
+				{
+					//High
+					for (i = c + 0; i < c + 8; i++)
+					{
+						Map[i + 0xC00] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0xC00] = TRUE;
+						BlockIsROM[i + 0xC00] = FALSE;
+					}
+					//Low
+					for (i = c + 8; i < c + 16; i++)
+					{
+						Map[i + 0xC00] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0xC00] = TRUE;
+						BlockIsROM[i + 0xC00] = FALSE;
+					}
+				}
+			}
+			*/
+		}
+		else
+		{
+			//Map PSRAM to 60-6F/E0-EF
+
+			if (BSX.MMC[0x03])
+				map_psram_mirror_sub(0x60);
+
+			if (BSX.MMC[0x04])
+				map_psram_mirror_sub(0xE0);
+
+			/*
+			if (BSX.MMC[0x03])
+			{
+				for (c = 0; c < 0x100; c += 16)
+				{
+					//High
+					for (i = c + 0; i < c + 8; i++)
+					{
+						Map[i + 0x600] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0x600] = TRUE;
+						BlockIsROM[i + 0x600] = FALSE;
+					}
+					//Low
+					for (i = c + 8; i < c + 16; i++)
+					{
+						Map[i + 0x600] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0x600] = TRUE;
+						BlockIsROM[i + 0x600] = FALSE;
+					}
+				}
+			}
+
+			if (BSX.MMC[0x04])
+			{
+				for (c = 0; c < 0x100; c += 16)
+				{
+					//High
+					for (i = c + 0; i < c + 8; i++)
+					{
+						Map[i + 0xE00] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0xE00] = TRUE;
+						BlockIsROM[i + 0xE00] = FALSE;
+					}
+					//Low
+					for (i = c + 8; i < c + 16; i++)
+					{
+						Map[i + 0xE00] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0xE00] = TRUE;
+						BlockIsROM[i + 0xE00] = FALSE;
+					}
+				}
+			}
+			*/
+
+		}
+
+		//Always Map PSRAM to 70-7D/F0-FF
+
+		if (BSX.MMC[0x03])
+				map_psram_mirror_sub(0x70);
+
+		if (BSX.MMC[0x04])
+				map_psram_mirror_sub(0xF0);
+
+		/*
+			if (BSX.MMC[0x03])
+			{
+				for (c = 0; c < 0x100; c += 16)
+				{
+					//High
+					for (i = c + 0; i < c + 8; i++)
+					{
+						Map[i + 0x700] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0x700] = TRUE;
+						BlockIsROM[i + 0x700] = FALSE;
+					}
+					//Low
+					for (i = c + 8; i < c + 16; i++)
+					{
+						Map[i + 0x700] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0x700] = TRUE;
+						BlockIsROM[i + 0x700] = FALSE;
+					}
+				}
+			}
+
+			if (BSX.MMC[0x04])
+			{
+				for (c = 0; c < 0x100; c += 16)
+				{
+					//High
+					for (i = c + 0; i < c + 8; i++)
+					{
+						Map[i + 0xF00] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0xF00] = TRUE;
+						BlockIsROM[i + 0xF00] = FALSE;
+					}
+					//Low
+					for (i = c + 8; i < c + 16; i++)
+					{
+						Map[i + 0xF00] = &PSRAM[(c << 11) % PSRAM_SIZE] - 0x8000;
+						BlockIsRAM[i + 0xF00] = TRUE;
+						BlockIsROM[i + 0xF00] = FALSE;
+					}
+				}
+			}
+			*/
+	}
+	else
+	{
+		//HiROM
+		if (!BSX.MMC[0x05] && !BSX.MMC[0x06])
+		{
+			//Map PSRAM to 40-47/C0-C7
+			if (BSX.MMC[0x03])
+				map_psram_mirror_sub(0x40);
+
+			if (BSX.MMC[0x04])
+				map_psram_mirror_sub(0xC0);
+
+		}
+		else if (BSX.MMC[0x05] && !BSX.MMC[0x06])
+		{
+			//Map PSRAM to 50-57/D0-D7
+			if (BSX.MMC[0x03])
+				map_psram_mirror_sub(0x50);
+
+			if (BSX.MMC[0x04])
+				map_psram_mirror_sub(0xD0);
+		}
+		else if (!BSX.MMC[0x05] && BSX.MMC[0x06])
+		{
+			//Map PSRAM to 60-67/E0-E7
+			if (BSX.MMC[0x03])
+				map_psram_mirror_sub(0x60);
+
+			if (BSX.MMC[0x04])
+				map_psram_mirror_sub(0xE0);
+		}
+		else
+		{
+			//Map PSRAM to 70-77/F0-F7
+			if (BSX.MMC[0x03])
+				map_psram_mirror_sub(0x70);
+
+			if (BSX.MMC[0x04])
+				map_psram_mirror_sub(0xF0);
+		}
+
+		// ALWAYS Banks 20->3F:6000-7FFF
+		for (c = 0x200; c < 0x400; c += 16)
+		{
+			Map[c + 6] = &PSRAM[((c & 0x70) << 12) % PSRAM_SIZE];
+			Map[c + 7] = &PSRAM[((c & 0x70) << 12) % PSRAM_SIZE];
+			BlockIsRAM[c + 6] = TRUE;
+			BlockIsRAM[c + 7] = TRUE;
+			BlockIsROM[c + 6] = FALSE;
+			BlockIsROM[c + 7] = FALSE;
+		}
+	}
 
 	// Banks 70->77:0000-FFFF
 	// FIXME: could be toggled by $03
+	/*
 	for (c = 0; c < 0x80; c++)
 	{
 		Map[c + 0x700] = &PSRAM[((c & 0x70) << 12) % PSRAM_SIZE];
 		BlockIsRAM[c + 0x700] = TRUE;
 		BlockIsROM[c + 0x700] = FALSE;
-	}
-
-	// Banks 20->3F:6000-7FFF mirrors 70->77:6000-7FFF
-	for (c = 0x200; c < 0x400; c += 16)
-	{
-		Map[c + 6] = &PSRAM[((c & 0x70) << 12) % PSRAM_SIZE];
-		Map[c + 7] = &PSRAM[((c & 0x70) << 12) % PSRAM_SIZE];
-		BlockIsRAM[c + 6] = TRUE;
-		BlockIsRAM[c + 7] = TRUE;
-		BlockIsROM[c + 6] = FALSE;
-		BlockIsROM[c + 7] = FALSE;
 	}
 
 	if (!BSX.MMC[0x05])
@@ -462,6 +746,7 @@ static void BSX_Map_PSRAM (void)
 	if (!BSX.MMC[0x03])
 		// Banks 60->6F:0000-FFFF mirrors 70->77:0000-7FFF (?)
 		map_psram_mirror_sub(0x60);
+	*/
 }
 
 static void BSX_Map_BIOS (void)
@@ -568,6 +853,7 @@ static void BSX_Map (void)
 		return;
 	}
 
+	/*
 	if (BSX.MMC[0x01])
 	{
 		MapROM = PSRAM;
@@ -578,20 +864,25 @@ static void BSX_Map (void)
 		MapROM = FlashROM;
 		FlashSize = FLASH_SIZE;
 	}
+	*/
 
-	BSX_Map_SNES();
+	MapROM = FlashROM;
+	FlashSize = FLASH_SIZE;
 
 	if (BSX.MMC[0x02])
 		BSX_Map_HiROM();
 	else
 		BSX_Map_LoROM();
 
+	BSX_Map_FlashIO();
 	BSX_Map_PSRAM();
+	BSX_Map_SNES();
+
 	BSX_Map_SRAM();
 	BSX_Map_RAM();
 
 	BSX_Map_BIOS();
-	BSX_Map_FlashIO();
+	
 	BSX_Map_MMC();
 
 	// Monitor new register changes
@@ -601,29 +892,55 @@ static void BSX_Map (void)
 	Memory.map_WriteProtectROM();
 }
 
-static uint8 BSX_Get_Bypass_FlashIO (uint16 offset)
+static uint8 BSX_Get_Bypass_FlashIO (uint32 offset)
 {
+	if (Multi.cartSizeB && (Multi.cartType == 3))
+		MapROM = FlashROM = Memory.ROM + Multi.cartOffsetB;
+
 	if (BSX.MMC[0x02])
-		return (MapROM[offset]);
+	{
+		return (MapROM[(offset & 0x0FFFFF)]);
+	/*
+		if (offset < 0xC00000)
+			return (MapROM[offset]);
+		else
+			return (MapROM[offset - 0xC00000]);
+			*/
+	}
 	else
 	{
+		return (MapROM[(offset&0x0F0000)>>1|(offset&0x7FFF)]);
+		/*
 		if (offset < 0x8000)
 			return (MapROM[offset]);
 		else
 			return (MapROM[offset - 0x8000]);
+			*/
 	}
 }
 
-static void BSX_Set_Bypass_FlashIO (uint16 offset, uint8 byte)
+static void BSX_Set_Bypass_FlashIO (uint32 offset, uint8 byte)
 {
+	if (Multi.cartSizeB && (Multi.cartType == 3))
+		MapROM = FlashROM = Memory.ROM + Multi.cartOffsetB;
+
 	if (BSX.MMC[0x02])
-		MapROM[offset] = byte;
+	{
+		//MapROM[offset] = byte;
+		//if (offset < HiROMcomp)
+		MapROM[(offset & 0x0FFFFF)] = byte;
+		//else
+			//MapROM[offset - HiROMcomp] = byte;
+	}
 	else
 	{
-		if (offset < 0x8000)
+		MapROM[(offset&0x0F0000)>>1|(offset&0x7FFF)] = byte;
+		/*
+		if ((offset & 0x7FFF) < 0x8000)
 			MapROM[offset] = byte;
 		else
 			MapROM[offset - 0x8000] = byte;
+		*/
 	}
 }
 
@@ -638,17 +955,25 @@ uint8 S9xGetBSX (uint32 address)
 		return (BSX.MMC[bank]);
 
 	// Flash IO
-	if (bank == 0xC0)
+	if (bank >= 0xC0)
 	{
-		// default: read-through mode
-		t = BSX_Get_Bypass_FlashIO(offset);
 
+		// default: read-through mode
+		t = BSX_Get_Bypass_FlashIO(address);
+		
 		// note: may be more registers, purposes unknown
 		switch (offset)
 		{
 			case 0x0002:
-				if (BSX.flash_enable)
-					t = 0x80; // status register?
+			case 0x8002:
+				if (BSX.flash_bsr)
+					t = 0xC0; // status register?
+				break;
+
+			case 0x0004:
+			case 0x8004:
+				if (BSX.flash_gsr)
+					t = 0x82;
 				break;
 
 			case 0x5555:
@@ -671,6 +996,13 @@ uint8 S9xGetBSX (uint32 address)
 					t = flashcard[offset - 0xFF00];
 				break;
 		}
+
+		if(BSX.flash_csr)
+		{
+			t = 0x80;
+			BSX.flash_csr = false;
+		}
+		
 	}
 
 	return (t);
@@ -682,7 +1014,7 @@ void S9xSetBSX (uint8 byte, uint32 address)
 	uint16	offset = address & 0xFFFF;
 
 	// MMC
-	if ((bank >= 0x01 && bank <= 0x0E) && (offset == 0x5000))
+	if ((bank >= 0x01 && bank <= 0x0E) && ((offset & 0xF000) == 0x5000))
 	{
 		switch (bank)
 		{
@@ -722,42 +1054,38 @@ void S9xSetBSX (uint8 byte, uint32 address)
 	}
 
 	// Flash IO
-	if (bank == 0xC0)
+	if (bank >= 0xC0)
 	{
+		BSX.new_write = byte;
 		BSX.old_write = BSX.new_write;
 		BSX.new_write = address;
 
 		// ???: double writes to the desired address will bypass
 		// flash registers
-		if (BSX.old_write == BSX.new_write && BSX.write_enable)
+		//if (BSX.old_write == BSX.new_write && BSX.write_enable)
+		if (BSX.write_enable)
 		{
-			BSX_Set_Bypass_FlashIO(offset, byte);
+			BSX_Set_Bypass_FlashIO(address, byte);
+			//MapROM[address & 0x3FFFFF] = byte;
+			BSX.write_enable = false;
 			return;
 		}
 
 		// flash command handling
 		// note: incomplete
-		switch (offset)
-		{
-			case 0x0000:
-				BSX.flash_command <<= 8;
-				BSX.flash_command |= byte;
-				if ((BSX.flash_command & 0xFFFF) == 0x38D0)
-				{
-					// retrieve information about the flash card
-					BSX.flash_enable = TRUE;
-					BSX.read_enable  = TRUE;
-				}
-				break;
+		if (BSX.MMC[0xC]) {
+		if ((flashcard[6] & 0xF0) == 0x20) {
+		// Memory Pack Type 2
+			switch (offset)
+			{
+				case 0x2AAA:
+					BSX.flash_command <<= 8;
+					BSX.flash_command |= byte;
+					break;
 
-			case 0x2AAA:
-				BSX.flash_command <<= 8;
-				BSX.flash_command |= byte;
-				break;
-
-			case 0x5555:
-				BSX.flash_command <<= 8;
-				BSX.flash_command |= byte;
+				case 0x5555:
+					BSX.flash_command <<= 8;
+					BSX.flash_command |= byte;
 
 				switch (BSX.flash_command & 0xFFFFFF)
 				{
@@ -790,8 +1118,103 @@ void S9xSetBSX (uint8 byte, uint32 address)
 
 				}
 
-				break;
+			}
+
 		}
+		else
+		{
+			//Memory Pack Type 1 & 3 & 4
+			BSX.flash_command <<= 8;
+			BSX.flash_command |= byte;
+
+			switch (BSX.flash_command & 0xFF)
+			{
+				case 0x00:
+				case 0xFF:
+					BSX.flash_enable   = false;
+					BSX.flash_bsr	   = false;
+					BSX.flash_csr	   = false;
+					BSX.flash_gsr	   = false;
+					BSX.read_enable	   = false;
+					BSX.write_enable   = false;
+					BSX.flash_cmd_done = true;
+					break;
+
+				case 0x10:
+				case 0x40:
+					BSX.flash_enable   = false;
+					BSX.flash_bsr	   = false;
+					BSX.flash_csr	   = true;
+					BSX.flash_gsr	   = false;
+					BSX.read_enable	   = false;
+					BSX.write_enable   = true;
+					BSX.flash_cmd_done = true;
+					break;
+
+				case 0x50:
+					BSX.flash_enable   = false;
+					BSX.flash_bsr	   = false;
+					BSX.flash_csr	   = false;
+					BSX.flash_gsr	   = false;
+					BSX.flash_cmd_done = true;
+					break;
+
+				case 0x70:
+					BSX.flash_enable   = false;
+					BSX.flash_bsr	   = false;
+					BSX.flash_csr	   = true;
+					BSX.flash_gsr	   = false;
+					BSX.read_enable	   = false;
+					BSX.write_enable   = false;
+					BSX.flash_cmd_done = true;
+					break;
+
+				case 0x71:
+					BSX.flash_enable   = false;
+					BSX.flash_bsr	   = true;
+					BSX.flash_csr	   = false;
+					BSX.flash_gsr	   = true;
+					BSX.read_enable	   = false;
+					BSX.write_enable   = false;
+					BSX.flash_cmd_done = true;
+					break;
+
+				case 0x75:
+					BSX.flash_csr	   = false;
+					BSX.read_enable	   = true;
+					BSX.flash_cmd_done = true;
+					break;
+
+				case 0xD0:
+					//STUFF HERE
+					switch (BSX.flash_command & 0xFFFF)
+					{
+						case 0x20D0: //Block Erase
+							uint32 x;
+							for (x=0; x < 0x10000; x++) {
+								BSX_Set_Bypass_FlashIO(((address & 0xFF0000) + x), 0xFF);
+								//MapROM[((address & 0xFF0000) - 0xC00000) + x] = 0xFF;
+							}
+							break;
+
+						case 0xA7D0: //Chip Erase (ONLY IN TYPE 1 AND 4)
+							if ((flashcard[6] & 0xF0) == 0x10 || (flashcard[6] & 0xF0) == 0x40)
+							{
+								uint32 x;
+								for (x=0; x < FLASH_SIZE; x++) {
+									BSX_Set_Bypass_FlashIO(x, 0xFF);
+									//MapROM[x] = 0xFF;
+								}
+							}
+							break;
+
+						case 0x38D0: //Flashcart Reset
+							break;
+					}
+					break;
+			}
+		}
+	}
 	}
 }
 
@@ -820,7 +1243,7 @@ uint8 S9xGetBSXPPU (uint16 address)
 			if (BSX.PPU[0x2188 - BSXPPUBASE] == 0 && BSX.PPU[0x2189 - BSXPPUBASE] == 0)	t = 1;
 			else
 			{
-				if (!BSX.stream1 || BSX.PPU[0x218A - BSXPPUBASE] == 0) {
+				if (!BSX.stream1 || BSX.PPU[0x218A - BSXPPUBASE] <= 0) {
 					BSX.strm1_num++;
 					S9xBSXSetStream1(BSX.strm1_num);
 				}
@@ -829,40 +1252,53 @@ uint8 S9xGetBSXPPU (uint16 address)
 
 		//Status Units
 		case 0x218B:
-			t = BSX.PPU[0x218A - BSXPPUBASE];
+			t = BSX.PPU[0x218B - BSXPPUBASE];
 
-			if (BSX.PPU[0x2188 - BSXPPUBASE] == 0 && BSX.PPU[0x2189 - BSXPPUBASE] == 0)	t = 0x90;
-			else
-			{
-				t = 0x00;
-				if (BSX.stream1)
+			t = 0x00;
+
+			if (BSX.PPU[0x218B - BSXPPUBASE] != 0) {
+				if (BSX.PPU[0x2188 - BSXPPUBASE] == 0 && BSX.PPU[0x2189 - BSXPPUBASE] == 0)	t = 0x90;
+				else
 				{
-					if (BSX.strm1_1st) {
-						t = 0x10;
-						BSX.strm1_1st = false;
+					t = 0x00;
+					if (BSX.stream1)
+					{
+						if (BSX.strm1_1st) {
+							t = 0x10;
+							BSX.strm1_1st = false;
+						}
+						BSX.PPU[0x218A - BSXPPUBASE]--;
+						if (BSX.PPU[0x218A - BSXPPUBASE] == 0) t |= 0x80;
 					}
-					BSX.PPU[0x218A - BSXPPUBASE]--;
-					if (BSX.PPU[0x218A - BSXPPUBASE] == 0) t |= 0x80;
 				}
-			}
 			BSX.PPU[0x218D - BSXPPUBASE] |= t;
+			}
 			break;
+
 
 		//Data Units
 		case 0x218C:
 			t = BSX.PPU[0x218C - BSXPPUBASE];
 
-			if (BSX.PPU[0x2188 - BSXPPUBASE] == 0 && BSX.PPU[0x2189 - BSXPPUBASE] == 0)	t = S9xBSXGetRTC();
-			else
-			{
-				t = 0x00;
-				if (BSX.stream1) t = (uint8)fgetc(BSX.stream1);
+			t = 0x00;
+
+			if (BSX.PPU[0x218C - BSXPPUBASE] != 0) {
+				if (BSX.PPU[0x2188 - BSXPPUBASE] == 0 && BSX.PPU[0x2189 - BSXPPUBASE] == 0)	t = S9xBSXGetRTC();
+				else
+				{
+					t = 0xFF;
+					if (BSX.stream1) {
+						if (!feof(BSX.stream1)) t = fgetc(BSX.stream1);
+					}
+				}
 			}
 			break;
 
 		//Status Summary
 		case 0x218D:
 			t = BSX.PPU[0x218D - BSXPPUBASE];
+
+			BSX.PPU[0x218D - BSXPPUBASE] = 0;
 			break;
 
 		//Stream 2 Registers
@@ -881,28 +1317,63 @@ uint8 S9xGetBSXPPU (uint16 address)
 			t = BSX.PPU[0x2190 - BSXPPUBASE];
 
 			if (BSX.PPU[0x218E - BSXPPUBASE] == 0 && BSX.PPU[0x218F - BSXPPUBASE] == 0)	t = 1;
+			else
+			{
+				if (!BSX.stream2 || BSX.PPU[0x2190 - BSXPPUBASE] <= 0) {
+					BSX.strm2_num++;
+					S9xBSXSetStream2(BSX.strm2_num);
+				}
+			}
 			break;
 
 		//Status Units
 		case 0x2191:
 			t = BSX.PPU[0x2191 - BSXPPUBASE];
 
-			if (BSX.PPU[0x218E - BSXPPUBASE] == 0 && BSX.PPU[0x218F - BSXPPUBASE] == 0)	t = 0x90;
+			t = 0x00;
+
+			if (BSX.PPU[0x2191 - BSXPPUBASE] != 0) {
+				if (BSX.PPU[0x218E - BSXPPUBASE] == 0 && BSX.PPU[0x218F - BSXPPUBASE] == 0)	t = 0x90;
+				else
+				{
+					t = 0x00;
+					if (BSX.stream2)
+					{
+						if (BSX.strm2_1st) {
+							t = 0x10;
+							BSX.strm2_1st = false;
+						}
+						BSX.PPU[0x2190 - BSXPPUBASE]--;
+						if (BSX.PPU[0x2190 - BSXPPUBASE] == 0) t |= 0x80;
+					}
+				}
+			BSX.PPU[0x2193 - BSXPPUBASE] |= t;
+			}
 			break;
 
 		//Data Units
 		case 0x2192:
 			t = BSX.PPU[0x2192 - BSXPPUBASE];
 
-			// test
-			if (BSX.PPU[0x218E - BSXPPUBASE] == 0 && BSX.PPU[0x218F - BSXPPUBASE] == 0)	t = S9xBSXGetRTC();
+			t = 0x00;
+
+			if (BSX.PPU[0x2192 - BSXPPUBASE] != 0) {
+				if (BSX.PPU[0x218E - BSXPPUBASE] == 0 && BSX.PPU[0x218F - BSXPPUBASE] == 0)	t = S9xBSXGetRTC();
+				else
+				{
+					t = 0xFF;
+					if (BSX.stream2) {
+						if (!feof(BSX.stream2)) t = fgetc(BSX.stream2);
+					}
+				}
+			}
 			break;
 
 		//Status Summary
 		case 0x2193:
 			t = BSX.PPU[0x2193 - BSXPPUBASE];
 
-			if (BSX.PPU[0x218E - BSXPPUBASE] == 0 && BSX.PPU[0x218F - BSXPPUBASE] == 0)	t = 0x90;
+			BSX.PPU[0x2193 - BSXPPUBASE] = 0;
 			break;
 
 		// Control (LED and Audio?)
@@ -946,16 +1417,26 @@ void S9xSetBSXPPU (uint8 byte, uint16 address)
 		//Stream 1
 		//Hardware Channel low
 		case 0x2188:
+			if (BSX.PPU[0x2188 - BSXPPUBASE] != byte)
+			{
+				BSX.strm1_1st = false;
+				BSX.strm1_num = -1;
+				BSX.PPU[0x218A - BSXPPUBASE] = 0;
+				BSX.PPU[0x218D - BSXPPUBASE] = 0;
+			}
 			BSX.PPU[0x2188 - BSXPPUBASE] = byte;
-			BSX.strm1_1st = false;
-			BSX.strm1_num = -1;
 			break;
 
 		//Hardware Channel high
 		case 0x2189:
+			if (BSX.PPU[0x2189 - BSXPPUBASE] != byte)
+			{
+				BSX.strm1_1st = false;
+				BSX.strm1_num = -1;
+				BSX.PPU[0x218A - BSXPPUBASE] = 0;
+				BSX.PPU[0x218D - BSXPPUBASE] = 0;
+			}
 			BSX.PPU[0x2189 - BSXPPUBASE] = byte;
-			BSX.strm1_1st = false;
-			BSX.strm1_num = -1;
 			break;
 
 		//Status Units Reset
@@ -973,16 +1454,26 @@ void S9xSetBSXPPU (uint8 byte, uint16 address)
 		//Stream 2
 		//Hardware Channel low
 		case 0x218E:
+			if (BSX.PPU[0x218E - BSXPPUBASE] != byte)
+			{
+				BSX.strm1_1st = false;
+				BSX.strm1_num = -1;
+				BSX.PPU[0x2190 - BSXPPUBASE] = 0;
+				BSX.PPU[0x2193 - BSXPPUBASE] = 0;
+			}
 			BSX.PPU[0x218E - BSXPPUBASE] = byte;
-			BSX.strm2_1st = false;
-			BSX.strm2_num = -1;
 			break;
 
 		//Hardware Channel high
 		case 0x218F:
+			if (BSX.PPU[0x218F - BSXPPUBASE] != byte)
+			{
+				BSX.strm1_1st = false;
+				BSX.strm1_num = -1;
+				BSX.PPU[0x2190 - BSXPPUBASE] = 0;
+				BSX.PPU[0x2193 - BSXPPUBASE] = 0;
+			}
 			BSX.PPU[0x218F - BSXPPUBASE] = byte;
-			BSX.strm2_1st = false;
-			BSX.strm2_num = -1;
 			break;
 
 		//Status Units Reset
@@ -1074,8 +1565,6 @@ static bool8 is_BSX_BIOS (const uint8 *data, uint32 size)
 
 void S9xInitBSX (void)
 {
-	Settings.BS = FALSE;
-
     if (is_BSX_BIOS(Memory.ROM,Memory.CalculatedSize))
 	{
 		// BS-X itself
@@ -1120,7 +1609,6 @@ void S9xInitBSX (void)
 				printf("BS: ROM Header %02X: %02X\n", i, header[i]);
 			printf("BS: FlashMode: %d, FlashSize: %x\n", FlashMode, FlashSize);
 #endif
-
 			BSX.bootup = Settings.BSXBootup;
 
 			if (!BSX_LoadBIOS() && !is_BSX_BIOS(BIOSROM,BIOS_SIZE))
@@ -1164,7 +1652,7 @@ void S9xInitBSX (void)
 void S9xResetBSX (void)
 {
 	if (Settings.BSXItself)
-		memset(Memory.ROM, 0, FLASH_SIZE);
+		memset(Memory.ROM, 0xFF, FLASH_SIZE);
 
 	memset(BSX.PPU, 0, sizeof(BSX.PPU));
 	memset(BSX.MMC, 0, sizeof(BSX.MMC));
@@ -1175,6 +1663,9 @@ void S9xResetBSX (void)
 	BSX.flash_enable  = FALSE;
 	BSX.write_enable  = FALSE;
 	BSX.read_enable   = FALSE;
+	BSX.flash_bsr	  = FALSE;
+	BSX.flash_csr	  = FALSE;
+	BSX.flash_gsr	  = FALSE;
 	BSX.flash_command = 0;
 	BSX.old_write     = 0;
 	BSX.new_write     = 0;
@@ -1186,32 +1677,43 @@ void S9xResetBSX (void)
 	BSX.strm2_num = -1;
 
 	// starting from the bios
+	/*
 	if (BSX.bootup)
+	{ */
+		BSX.MMC[0x02] = BSX.MMC[0x03] = BSX.MMC[0x05] = BSX.MMC[0x06] = 0x80;
+		BSX.MMC[0x09] = BSX.MMC[0x0B] = 0x80;
+
 		BSX.MMC[0x07] = BSX.MMC[0x08] = 0x80;
+		BSX.MMC[0x0E] = 0x80;
+		/*
+	}
 	else
 	{
-		BSX.MMC[0x02] = FlashMode ? 0x80: 0;
+		BSX.MMC[0x07] = BSX.MMC[0x08] = 0x80;
+		BSX.MMC[0x02] = 0x00;
+		//BSX.MMC[0x02] = FlashMode ? 0x80: 0;
 
 		// per bios: run from psram or flash card
 		if (FlashSize == PSRAM_SIZE)
 		{
 			memcpy(PSRAM, FlashROM, PSRAM_SIZE);
 
-			BSX.MMC[0x01] = 0x80;
+			//BSX.MMC[0x01] = 0x80;
 			BSX.MMC[0x03] = 0x80;
 			BSX.MMC[0x04] = 0x80;
 			BSX.MMC[0x0C] = 0x80;
-			BSX.MMC[0x0D] = 0x80;
 		}
 		else
 		{
 			BSX.MMC[0x03] = 0x80;
 			BSX.MMC[0x05] = 0x80;
 			BSX.MMC[0x06] = 0x80;
+			BSX.MMC[0x09] = BSX.MMC[0x0B] = 0x80;
+			BSX.MMC[0x0C] = 0x80;
 		}
-
+		
 		BSX.MMC[0x0E] = 0x80;
-	}
+	}*/
 
 	BSX_Map();
 }
@@ -1282,8 +1784,8 @@ uint8 S9xBSXGetRTC (void)
 
 void S9xBSXSetStream1 (uint8 filenumber)
 {
-	//LOL
-	if (BSX.stream1) fclose(BSX.stream1);
+	//Load File for Stream1
+	if (BSX.stream1) fclose(BSX.stream1); //If Stream1 already opened for one file: Close it.
 
 	char	path[PATH_MAX + 1], name[PATH_MAX + 1];
 
@@ -1293,9 +1795,9 @@ void S9xBSXSetStream1 (uint8 filenumber)
 	strcat(path, SLASH_STR);
 	strcpy(name, path);
 
-	uint16 Signal_Nb=BSX.PPU[0x2188 - BSXPPUBASE]^(BSX.PPU[0x2189 - BSXPPUBASE]*256);
+	uint16 Chn_Nb = BSX.PPU[0x2188 - BSXPPUBASE] ^ (BSX.PPU[0x2189 - BSXPPUBASE] * 256);
 	char	filenm [25];
-	sprintf(filenm, "BSX%04.4hX-%d.bin", Signal_Nb, filenumber);
+	sprintf(filenm, "BSX%04.4hX-%d.bin", Chn_Nb, filenumber); //BSXHHHH-DDD.bin
 
 	strcat(name, filenm);
 
@@ -1305,7 +1807,7 @@ void S9xBSXSetStream1 (uint8 filenumber)
 		fseek (BSX.stream1 , 0 , SEEK_END);
 		long str1size = ftell (BSX.stream1);
 		rewind (BSX.stream1);
-		float QueueSize = (str1size+1) / 22.;
+		float QueueSize = str1size / 22.;
 		BSX.PPU[0x218A - BSXPPUBASE] = (uint8)(ceil(QueueSize));
 		BSX.PPU[0x218D - BSXPPUBASE] = 0;
 		BSX.strm1_1st = true;
@@ -1321,7 +1823,41 @@ void S9xBSXSetStream1 (uint8 filenumber)
 
 void S9xBSXSetStream2 (uint8 filenumber)
 {
-	//LOL
+	//Load File for Stream2
+	if (BSX.stream1) fclose(BSX.stream2); //If Stream1 already opened for one file: Close it.
+
+	char	path[PATH_MAX + 1], name[PATH_MAX + 1];
+
+	strcpy(path, S9xGetDirectory(HOME_DIR));
+	strcat(path, SLASH_STR);
+	strcat(path, "bsxdat");
+	strcat(path, SLASH_STR);
+	strcpy(name, path);
+
+	uint16 Chn_Nb = BSX.PPU[0x2188 - BSXPPUBASE] ^ (BSX.PPU[0x2189 - BSXPPUBASE] * 256);
+	char	filenm [25];
+	sprintf(filenm, "BSX%04.4hX-%d.bin", Chn_Nb, filenumber); //BSXHHHH-DDD.bin
+
+	strcat(name, filenm);
+
+	BSX.stream2 = fopen(name, "rb");
+	if (BSX.stream2)
+	{
+		fseek (BSX.stream2 , 0 , SEEK_END);
+		long str1size = ftell (BSX.stream2);
+		rewind (BSX.stream2);
+		float QueueSize = str1size / 22.;
+		BSX.PPU[0x218A - BSXPPUBASE] = (uint8)(ceil(QueueSize));
+		BSX.PPU[0x218D - BSXPPUBASE] = 0;
+		BSX.strm1_1st = true;
+	}
+	else
+	{
+		BSX.strm1_1st = false;
+		BSX.strm1_num = -1;
+		BSX.PPU[0x218A - BSXPPUBASE] = 0;
+		BSX.PPU[0x218D - BSXPPUBASE] = 0;
+	}
 	
 }
 
@@ -1352,3 +1888,4 @@ static int is_bsx (unsigned char *p)
 
 	return (0);
 }
+
