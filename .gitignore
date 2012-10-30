@@ -22,6 +22,9 @@
 *.lib
 *.sbr
 *.sdf
+*.opensdf
+snes9x-debug.exe
+snes9x.exe
 win32/ipch/
 win32/obj/
 win32/[Bb]in
