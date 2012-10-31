@@ -2236,10 +2236,7 @@ bool8 CMemory::SaveMPAK (const char *filename)
 			if (file)
 			{
 				size_t	ignore;
-				if (Settings.BS)
-					ignore = fwrite((char *) ROM, size, 1, file);
-				if (Multi.cartSizeB && (Multi.cartType == 3))
-					ignore = fwrite((char *) ROM + Multi.cartOffsetB, Multi.cartSizeB, 1, file);
+				ignore = fwrite((char *) ROM + Multi.cartOffsetB, size, 1, file);
 				fclose(file);
 
 				return (TRUE);

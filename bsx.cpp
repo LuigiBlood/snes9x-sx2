@@ -261,6 +261,7 @@ static bool8 BSX_LoadBIOS (void);
 static void map_psram_mirror_sub (uint32);
 static int is_bsx (unsigned char *);
 
+
 static void BSX_Map_SNES (void)
 {
 	// These maps will be partially overwritten
@@ -359,16 +360,19 @@ static void BSX_Map_MMC (void)
 	}
 }
 
-void BSX_Map_FlashIO (void)
+static void BSX_Map_FlashIO (void)
 {
 	int	c;
 
-	// Bank C0:0000, 2AAA, 5555, FF00-FF1F
-	for (c = 0; c < 0x400; c += 8)
+	if (BSX.MMC[0x0C])
 	{
-		Map[c + 0xC00] = (uint8 *) MAP_BSX;
-		BlockIsRAM[c + 0xC00] = TRUE;
-		BlockIsROM[c + 0xC00] = FALSE;
+		// Bank C0:0000, 2AAA, 5555, FF00-FF1F
+		for (c = 0; c < 0x400; c++)
+		{
+			Map[c + 0xC00] = (uint8 *) MAP_BSX;
+			BlockIsRAM[c + 0xC00] = TRUE;
+			BlockIsROM[c + 0xC00] = FALSE;
+		}
 	}
 }
 
@@ -894,54 +898,22 @@ static void BSX_Map (void)
 
 static uint8 BSX_Get_Bypass_FlashIO (uint32 offset)
 {
-	if (Multi.cartSizeB && (Multi.cartType == 3))
-		MapROM = FlashROM = Memory.ROM + Multi.cartOffsetB;
+	MapROM = FlashROM = Memory.ROM + Multi.cartOffsetB;
 
 	if (BSX.MMC[0x02])
-	{
-		return (MapROM[(offset & 0x0FFFFF)]);
-	/*
-		if (offset < 0xC00000)
-			return (MapROM[offset]);
-		else
-			return (MapROM[offset - 0xC00000]);
-			*/
-	}
+		return (MapROM[offset & 0x0FFFFF]);
 	else
-	{
 		return (MapROM[(offset&0x0F0000)>>1|(offset&0x7FFF)]);
-		/*
-		if (offset < 0x8000)
-			return (MapROM[offset]);
-		else
-			return (MapROM[offset - 0x8000]);
-			*/
-	}
 }
 
 static void BSX_Set_Bypass_FlashIO (uint32 offset, uint8 byte)
 {
-	if (Multi.cartSizeB && (Multi.cartType == 3))
-		MapROM = FlashROM = Memory.ROM + Multi.cartOffsetB;
+	MapROM = FlashROM = Memory.ROM + Multi.cartOffsetB;
 
 	if (BSX.MMC[0x02])
-	{
-		//MapROM[offset] = byte;
-		//if (offset < HiROMcomp)
-		MapROM[(offset & 0x0FFFFF)] = byte;
-		//else
-			//MapROM[offset - HiROMcomp] = byte;
-	}
+		MapROM[offset & 0x0FFFFF] = byte;
 	else
-	{
 		MapROM[(offset&0x0F0000)>>1|(offset&0x7FFF)] = byte;
-		/*
-		if ((offset & 0x7FFF) < 0x8000)
-			MapROM[offset] = byte;
-		else
-			MapROM[offset - 0x8000] = byte;
-		*/
-	}
 }
 
 uint8 S9xGetBSX (uint32 address)
@@ -1243,10 +1215,17 @@ uint8 S9xGetBSXPPU (uint16 address)
 			if (BSX.PPU[0x2188 - BSXPPUBASE] == 0 && BSX.PPU[0x2189 - BSXPPUBASE] == 0)	t = 1;
 			else
 			{
-				if (!BSX.stream1 || BSX.PPU[0x218A - BSXPPUBASE] <= 0) {
+				if (BSX.PPU[0x218A - BSXPPUBASE] <= 0)
+				{
 					BSX.strm1_num++;
 					S9xBSXSetStream1(BSX.strm1_num);
 				}
+				if ((BSX.strm1_num < 0) && !BSX.stream1)
+				{
+					BSX.strm1_num = 0;
+					S9xBSXSetStream1(BSX.strm1_num);
+				}
+				t = BSX.PPU[0x218A - BSXPPUBASE];
 			}
 			break;
 
@@ -1264,10 +1243,10 @@ uint8 S9xGetBSXPPU (uint16 address)
 					if (BSX.stream1)
 					{
 						if (BSX.strm1_1st) {
-							t = 0x10;
+							t |= 0x10;
 							BSX.strm1_1st = false;
 						}
-						BSX.PPU[0x218A - BSXPPUBASE]--;
+						if (BSX.PPU[0x218A - BSXPPUBASE] != 0) BSX.PPU[0x218A - BSXPPUBASE]--;
 						if (BSX.PPU[0x218A - BSXPPUBASE] == 0) t |= 0x80;
 					}
 				}
@@ -1319,10 +1298,17 @@ uint8 S9xGetBSXPPU (uint16 address)
 			if (BSX.PPU[0x218E - BSXPPUBASE] == 0 && BSX.PPU[0x218F - BSXPPUBASE] == 0)	t = 1;
 			else
 			{
-				if (!BSX.stream2 || BSX.PPU[0x2190 - BSXPPUBASE] <= 0) {
+				if (!BSX.stream2 || BSX.PPU[0x2190 - BSXPPUBASE] <= 0)
+				{
 					BSX.strm2_num++;
 					S9xBSXSetStream2(BSX.strm2_num);
 				}
+				if ((BSX.strm2_num < 0) && !BSX.stream2)
+				{
+					BSX.strm2_num = 0;
+					S9xBSXSetStream2(BSX.strm2_num);
+				}
+				t = BSX.PPU[0x2190 - BSXPPUBASE];
 			}
 			break;
 
@@ -1343,7 +1329,7 @@ uint8 S9xGetBSXPPU (uint16 address)
 							t = 0x10;
 							BSX.strm2_1st = false;
 						}
-						BSX.PPU[0x2190 - BSXPPUBASE]--;
+						if (BSX.PPU[0x2190 - BSXPPUBASE] != 0) BSX.PPU[0x2190 - BSXPPUBASE]--;
 						if (BSX.PPU[0x2190 - BSXPPUBASE] == 0) t |= 0x80;
 					}
 				}
@@ -1565,6 +1551,8 @@ static bool8 is_BSX_BIOS (const uint8 *data, uint32 size)
 
 void S9xInitBSX (void)
 {
+	Settings.BS = FALSE;
+
     if (is_BSX_BIOS(Memory.ROM,Memory.CalculatedSize))
 	{
 		// BS-X itself
@@ -1675,6 +1663,12 @@ void S9xResetBSX (void)
 
 	BSX.strm1_num = -1;
 	BSX.strm2_num = -1;
+
+	if (BSX.stream1)
+		fclose(BSX.stream1);
+
+	if (BSX.stream2)
+		fclose(BSX.stream2);
 
 	// starting from the bios
 	/*
@@ -1888,4 +1882,3 @@ static int is_bsx (unsigned char *p)
 
 	return (0);
 }
-
